@@ -1,12 +1,5 @@
 # Home Assistant integration for NAD receivers
 
-![Python][python-shield]
-[![GitHub Release][releases-shield]][releases]
-[![Licence][license-shield]][license]
-[![Maintainer][maintainer-shield]][maintainer]
-[![Home Assistant][homeassistant-shield]][homeassistant]
-[![HACS][hacs-shield]][hacs]  
-
 ## Introduction
 
 Home Assistant integration to control NAD receivers over Network or serial.
@@ -26,7 +19,7 @@ Thank you rrooggiieerr for your work and inspiration.
 The recommended way to install this Home Assistant integration is by using [HACS][hacs].
 Click the following button to open the integration directly on the HACS integration page.
 
-[![Install NAD-simple from HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=nett.media&repository=ha-nad-simple&category=integration)
+[![Install NAD-simple from HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=nett-media&repository=ha-nad-simple&category=integration)
 
 
 ### Manually
