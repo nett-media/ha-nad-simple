@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -10,7 +11,6 @@ import homeassistant.helpers.config_validation as cv
 import serial
 import serial.tools.list_ports
 import voluptuous as vol
-from aiodiscover.discovery import _LOGGER
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TYPE, UnitOfSoundPressure
 from homeassistant.core import callback
@@ -26,22 +26,16 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TextSelector,
 )
-from nad_receiver import NADReceiver, NADReceiverTCP, NADReceiverTelnet
-
-from . import CommandNotSupportedError, NADReceiverCoordinator
+from .client import NADClientError, NADSerialClient, NADTCPClient
 from .const import (
     CONF_DEFAULT_MAX_VOLUME,
     CONF_DEFAULT_MIN_VOLUME,
     CONF_DEFAULT_PORT,
-    CONF_DEFAULT_VOLUME_STEP,
     CONF_MAX_VOLUME,
     CONF_MIN_VOLUME,
     CONF_SERIAL_PORT,
-    CONF_SOURCE_DICT,
     CONF_TYPE_SERIAL,
-    CONF_TYPE_TCP,
     CONF_TYPE_TELNET,
-    CONF_VOLUME_STEP,
     DOMAIN,
 )
 
@@ -53,12 +47,6 @@ STEP_SETUP_TELNET_SCHEMA = vol.Schema(
         vol.Required(CONF_PORT, default=CONF_DEFAULT_PORT): NumberSelector(
             NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
         ),
-    }
-)
-
-STEP_SETUP_TCP_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): TextSelector(),
     }
 )
 
@@ -86,12 +74,6 @@ STEP_CONFIG_VOLUME_SCHEMA = vol.Schema(
                 unit_of_measurement=UnitOfSoundPressure.DECIBEL,
             )
         ),
-        # vol.Required(
-        #     CONF_VOLUME_STEP,
-        #     default=self.config_entry.options.get(
-        #         CONF_VOLUME_STEP, CONF_DEFAULT_VOLUME_STEP
-        #     ),
-        # ): cv.positive_int,
     }
 )
 
@@ -107,7 +89,7 @@ class NADReceiverConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["setup_serial", "setup_telnet", "setup_tcp"],
+            menu_options=["setup_serial", "setup_telnet"],
         )
 
     async def async_step_setup_serial(
@@ -190,15 +172,28 @@ class NADReceiverConfigFlow(ConfigFlow, domain=DOMAIN):
         if errors.get(CONF_SERIAL_PORT) is None:
             # Test if we can connect to the device and get model
             try:
-                receiver = NADReceiver(serial_port)
-                model = self.exec_command("Main.Model", "?")
-            except (serial.SerialException, CommandNotSupportedError):
-                errors["base"] = "cannot_connect"
-            else:
-                model = receiver.main_model("?")
-                assert model is not None, "Failed to retrieve receiver model"
+                client = NADSerialClient(serial_port)
+                await client.connect()
+
+                # Query model
+                model_data = {}
+
+                def callback(key: str, value: str):
+                    model_data[key] = value
+
+                client.set_callback(callback)
+                await client.send_command("Main.Model", "?")
+                await asyncio.sleep(0.5)  # Wait for response
+
+                model = model_data.get("Main.Model", "Unknown")
+
+                await client.disconnect()
 
                 _LOGGER.info("Device %s available", serial_port)
+
+            except (serial.SerialException, NADClientError) as err:
+                _LOGGER.error("Cannot connect to %s: %s", serial_port, err)
+                errors["base"] = "cannot_connect"
 
         # Return info that you want to store in the config entry.
         return (
@@ -210,7 +205,6 @@ class NADReceiverConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 CONF_MIN_VOLUME: CONF_DEFAULT_MIN_VOLUME,
                 CONF_MAX_VOLUME: CONF_DEFAULT_MAX_VOLUME,
-                CONF_VOLUME_STEP: CONF_DEFAULT_VOLUME_STEP,
             },
         )
 
@@ -248,11 +242,27 @@ class NADReceiverConfigFlow(ConfigFlow, domain=DOMAIN):
 
         try:
             # Test if we can connect to the device and get model
-            receiver = NADReceiverTelnet(host, port)
-            model = receiver.main_model("?")
+            client = NADTCPClient(host, port)
+            await client.connect()
+
+            # Query model
+            model_data = {}
+
+            def callback(key: str, value: str):
+                model_data[key] = value
+
+            client.set_callback(callback)
+            await client.send_command("Main.Model", "?")
+            await asyncio.sleep(0.5)  # Wait for response
+
+            model = model_data.get("Main.Model", "Unknown")
+
+            await client.disconnect()
 
             _LOGGER.info("Device %s available", host)
-        except CommandNotSupportedError as ex:
+
+        except NADClientError as err:
+            _LOGGER.error("Cannot connect to %s:%s: %s", host, port, err)
             errors["base"] = "cannot_connect"
 
         # Return info that you want to store in the config entry.
@@ -262,57 +272,6 @@ class NADReceiverConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 CONF_MIN_VOLUME: CONF_DEFAULT_MIN_VOLUME,
                 CONF_MAX_VOLUME: CONF_DEFAULT_MAX_VOLUME,
-            },
-        )
-
-    async def async_step_setup_tcp(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the setup serial step."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            title, data, options = await self.validate_input_setup_tcp(
-                user_input, errors
-            )
-
-            if not errors:
-                return self.async_create_entry(title=title, data=data, options=options)
-
-        return self.async_show_form(
-            step_id="setup_tcp",
-            data_schema=STEP_SETUP_TCP_SCHEMA,
-            errors=errors,
-        )
-
-    async def validate_input_setup_tcp(
-        self, data: dict[str, Any], errors: dict[str, str]
-    ) -> dict[str, Any]:
-        # Validate the data can be used to set up a connection.
-        STEP_SETUP_TCP_SCHEMA(data)
-
-        host = data[CONF_HOST]
-
-        await self.async_set_unique_id(host)
-        self._abort_if_unique_id_configured()
-
-        try:
-            # Test if we can connect to the device and get model
-            receiver = NADReceiverTCP(host)
-            model = receiver.main_model("?")
-
-            _LOGGER.info("Device %s available", host)
-        except CommandNotSupportedError as ex:
-            errors["base"] = "cannot_connect"
-
-        # Return info that you want to store in the config entry.
-        return (
-            f"NAD {model}",
-            {CONF_TYPE: CONF_TYPE_TCP, CONF_HOST: host},
-            {
-                CONF_MIN_VOLUME: CONF_DEFAULT_MIN_VOLUME,
-                CONF_MAX_VOLUME: CONF_DEFAULT_MAX_VOLUME,
-                CONF_VOLUME_STEP: CONF_DEFAULT_VOLUME_STEP,
             },
         )
 
@@ -363,7 +322,3 @@ def get_serial_by_id(dev_path: str) -> str:
         if os.path.realpath(path) == dev_path:
             return path
     return dev_path
-
-
-class CannotConnectError(HomeAssistantError):
-    """Error to indicate we cannot connect."""
