@@ -1,11 +1,11 @@
 {
-  "domain": "nad-simple",
+  "domain": "nad_simple",
   "name": "NAD Simple",
-  "codeowners": [],
+  "codeowners": ["@nett-media"],
   "config_flow": true,
-  "documentation": "",
+  "documentation": "https://github.com/nett-media/ha-nad-simple",
   "integration_type": "device",
   "iot_class": "local_push",
-  "requirements": ["pyserial-asyncio==0.6"],
+  "requirements": ["pyserial-asyncio>=0.6"],
   "version": "0.2.0"
 }
