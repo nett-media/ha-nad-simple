@@ -24,7 +24,7 @@ Click the following button to open the integration directly on the HACS integrat
 
 ### Manually
 
-- Copy the `custom_components/nad-simple` directory of this repository into the
+- Copy the `custom_components/nad_simple` directory of this repository into the
 `config/custom_components/` directory of your Home Assistant installation
 - Restart Home Assistant
 
