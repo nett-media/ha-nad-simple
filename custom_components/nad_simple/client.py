@@ -304,6 +304,10 @@ class NADTCPClient(NADClient):
             pass
         finally:
             _LOGGER.debug("Stopped listening for messages")
+            if self._reconnect_enabled and not self._connected:
+                _LOGGER.info("Connection lost, attempting reconnect in 10s...")
+                await asyncio.sleep(10)
+                await self._try_reconnect()
 
 
 class NADSerialClient(NADClient):
@@ -427,3 +431,7 @@ class NADSerialClient(NADClient):
             pass
         finally:
             _LOGGER.debug("Stopped listening for serial messages")
+            if self._reconnect_enabled and not self._connected:
+                _LOGGER.info("Serial connection lost, attempting reconnect in 10s...")
+                await asyncio.sleep(10)
+                await self._try_reconnect()
